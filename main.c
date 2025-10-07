@@ -70,6 +70,11 @@
 #define COLOR_WHITE   0xFFFF
 #define COLOR_YELLOW  0xFFE0
 #define COLOR_BLUE    0x001F
+#define COLOR_RED     0xF800
+#define COLOR_GREEN   0x07E0
+#define COLOR_CYAN    0x07FF
+#define COLOR_MAGENTA 0xF81F
+#define COLOR_ORANGE  0xFD20
 
 void tft_write_command(uint8_t cmd) {
     gpio_put(TFT_DC, 0);
@@ -175,16 +180,16 @@ void tft_fill_circle(uint16_t x0, uint16_t y0, uint16_t r, uint16_t color) {
     }
 }
 
-void draw_smiley_face() {
+void draw_smiley_face(bool is_happy, uint16_t face_color) {
     // Clear screen with white background
     tft_fill_rect(0, 0, TFT_WIDTH, TFT_HEIGHT, COLOR_WHITE);
 
-    // Face (yellow circle in center)
+    // Face (colored circle in center)
     uint16_t center_x = TFT_WIDTH / 2;
     uint16_t center_y = TFT_HEIGHT / 2;
     uint16_t face_radius = 100;
 
-    tft_fill_circle(center_x, center_y, face_radius, COLOR_YELLOW);
+    tft_fill_circle(center_x, center_y, face_radius, face_color);
 
     // Left eye
     tft_fill_circle(center_x - 35, center_y - 30, 10, COLOR_BLACK);
@@ -192,12 +197,23 @@ void draw_smiley_face() {
     // Right eye
     tft_fill_circle(center_x + 35, center_y - 30, 10, COLOR_BLACK);
 
-    // Smile (arc made of small circles)
-    for (int angle = 20; angle <= 160; angle += 5) {
-        float rad = angle * 3.14159 / 180.0;
-        int16_t x = center_x + (int16_t)(50 * cos(rad));
-        int16_t y = center_y + (int16_t)(50 * sin(rad));
-        tft_fill_circle(x, y, 3, COLOR_BLACK);
+    // Mouth (happy smile or sad frown)
+    if (is_happy) {
+        // Smile (arc made of small circles)
+        for (int angle = 20; angle <= 160; angle += 5) {
+            float rad = angle * 3.14159 / 180.0;
+            int16_t x = center_x + (int16_t)(50 * cos(rad));
+            int16_t y = center_y + (int16_t)(50 * sin(rad));
+            tft_fill_circle(x, y, 3, COLOR_BLACK);
+        }
+    } else {
+        // Frown (inverted arc)
+        for (int angle = 200; angle <= 340; angle += 5) {
+            float rad = angle * 3.14159 / 180.0;
+            int16_t x = center_x + (int16_t)(50 * cos(rad));
+            int16_t y = center_y + 20 + (int16_t)(50 * sin(rad));
+            tft_fill_circle(x, y, 3, COLOR_BLACK);
+        }
     }
 }
 
@@ -369,20 +385,50 @@ int main() {
 
     printf("=== Hardware Ready ===\n\n");
 
-    // Draw smiley face on display
-    draw_smiley_face();
-    printf("Smiley face drawn!\n");
+    // Smiley face state variables
+    bool is_happy = true;
+    uint8_t color_index = 0;
+    uint16_t rainbow_colors[] = {COLOR_YELLOW, COLOR_RED, COLOR_ORANGE, COLOR_GREEN, COLOR_CYAN, COLOR_BLUE, COLOR_MAGENTA};
+    uint8_t num_colors = 7;
+
+    // Button state tracking for debouncing
+    bool btn1_last = false;
+    bool btn2_last = false;
+
+    // Draw initial smiley face
+    draw_smiley_face(is_happy, rainbow_colors[color_index]);
+    printf("Smiley face drawn! BTN1=toggle happy/sad, BTN2=change color\n");
 
     // Main loop - test all inputs
     while (true) {
         // Blink LEDs to show we're alive
         gpio_put(LED_D1, 1);
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-        sleep_ms(250);
+        sleep_ms(50);
 
         gpio_put(LED_D1, 0);
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-        sleep_ms(250);
+        sleep_ms(50);
+
+        // Read button states (buttons read LOW when pressed)
+        bool btn1_pressed = !gpio_get(BTN1_PIN);
+        bool btn2_pressed = !gpio_get(BTN2_PIN);
+
+        // BTN1: Toggle happy/sad on button press (edge detection)
+        if (btn1_pressed && !btn1_last) {
+            is_happy = !is_happy;
+            draw_smiley_face(is_happy, rainbow_colors[color_index]);
+            printf("Toggled mood: %s\n", is_happy ? "Happy :)" : "Sad :(");
+        }
+        btn1_last = btn1_pressed;
+
+        // BTN2: Cycle through colors on button press (edge detection)
+        if (btn2_pressed && !btn2_last) {
+            color_index = (color_index + 1) % num_colors;
+            draw_smiley_face(is_happy, rainbow_colors[color_index]);
+            printf("Changed color to index %d\n", color_index);
+        }
+        btn2_last = btn2_pressed;
 
         // Read onboard analog joystick
         adc_select_input(0);
@@ -393,8 +439,7 @@ int main() {
         // Read all buttons and joysticks (digital inputs read LOW when pressed)
         printf("Analog Joy: X=%4d Y=%4d | Buttons: BTN1=%d BTN2=%d\n",
                joy_x, joy_y,
-               !gpio_get(BTN1_PIN),
-               !gpio_get(BTN2_PIN));
+               btn1_pressed, btn2_pressed);
 
         printf("Joy2: U=%d D=%d L=%d R=%d BTN=%d | Joy3: U=%d D=%d L=%d R=%d BTN=%d\n",
                !gpio_get(JOY2_UP), !gpio_get(JOY2_DOWN), !gpio_get(JOY2_LEFT), !gpio_get(JOY2_RIGHT), !gpio_get(JOY2_BTN),
