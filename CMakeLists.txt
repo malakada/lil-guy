@@ -37,6 +37,7 @@ pico_sdk_init()
 
 add_executable(lil_guy
     main.c
+    display.c
     )
 
 # Add current directory to include path for lwipopts.h
