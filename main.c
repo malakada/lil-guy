@@ -4,6 +4,7 @@
  */
 
 #include <stdio.h>
+#include <math.h>
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h"
 #include "hardware/spi.h"
@@ -59,6 +60,147 @@
 #define LED_D1          16
 #define LED_D2          17
 
+// ===== DISPLAY DRIVER FUNCTIONS =====
+
+#define TFT_WIDTH  320
+#define TFT_HEIGHT 480
+
+// Colors (RGB565 format)
+#define COLOR_BLACK   0x0000
+#define COLOR_WHITE   0xFFFF
+#define COLOR_YELLOW  0xFFE0
+#define COLOR_BLUE    0x001F
+
+void tft_write_command(uint8_t cmd) {
+    gpio_put(TFT_DC, 0);
+    gpio_put(TFT_CS, 0);
+    spi_write_blocking(TFT_SPI, &cmd, 1);
+    gpio_put(TFT_CS, 1);
+}
+
+void tft_write_data(uint8_t data) {
+    gpio_put(TFT_DC, 1);
+    gpio_put(TFT_CS, 0);
+    spi_write_blocking(TFT_SPI, &data, 1);
+    gpio_put(TFT_CS, 1);
+}
+
+void tft_write_data16(uint16_t data) {
+    uint8_t buf[2] = {data >> 8, data & 0xFF};
+    gpio_put(TFT_DC, 1);
+    gpio_put(TFT_CS, 0);
+    spi_write_blocking(TFT_SPI, buf, 2);
+    gpio_put(TFT_CS, 1);
+}
+
+void tft_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
+    tft_write_command(0x2A); // Column address set
+    tft_write_data16(x0);
+    tft_write_data16(x1);
+
+    tft_write_command(0x2B); // Row address set
+    tft_write_data16(y0);
+    tft_write_data16(y1);
+
+    tft_write_command(0x2C); // Memory write
+}
+
+void tft_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t color) {
+    tft_set_window(x, y, x + w - 1, y + h - 1);
+
+    gpio_put(TFT_DC, 1);
+    gpio_put(TFT_CS, 0);
+
+    uint8_t buf[2] = {color >> 8, color & 0xFF};
+    for (uint32_t i = 0; i < w * h; i++) {
+        spi_write_blocking(TFT_SPI, buf, 2);
+    }
+
+    gpio_put(TFT_CS, 1);
+}
+
+void tft_draw_circle(uint16_t x0, uint16_t y0, uint16_t r, uint16_t color) {
+    int16_t f = 1 - r;
+    int16_t ddF_x = 1;
+    int16_t ddF_y = -2 * r;
+    int16_t x = 0;
+    int16_t y = r;
+
+    // Draw circle using Bresenham's algorithm
+    while (x < y) {
+        if (f >= 0) {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        // Draw 8 octants
+        tft_fill_rect(x0 + x, y0 + y, 1, 1, color);
+        tft_fill_rect(x0 - x, y0 + y, 1, 1, color);
+        tft_fill_rect(x0 + x, y0 - y, 1, 1, color);
+        tft_fill_rect(x0 - x, y0 - y, 1, 1, color);
+        tft_fill_rect(x0 + y, y0 + x, 1, 1, color);
+        tft_fill_rect(x0 - y, y0 + x, 1, 1, color);
+        tft_fill_rect(x0 + y, y0 - x, 1, 1, color);
+        tft_fill_rect(x0 - y, y0 - x, 1, 1, color);
+    }
+}
+
+void tft_fill_circle(uint16_t x0, uint16_t y0, uint16_t r, uint16_t color) {
+    int16_t f = 1 - r;
+    int16_t ddF_x = 1;
+    int16_t ddF_y = -2 * r;
+    int16_t x = 0;
+    int16_t y = r;
+
+    tft_fill_rect(x0 - r, y0, 2 * r + 1, 1, color);
+
+    while (x < y) {
+        if (f >= 0) {
+            y--;
+            ddF_y += 2;
+            f += ddF_y;
+        }
+        x++;
+        ddF_x += 2;
+        f += ddF_x;
+
+        tft_fill_rect(x0 - x, y0 + y, 2 * x + 1, 1, color);
+        tft_fill_rect(x0 - x, y0 - y, 2 * x + 1, 1, color);
+        tft_fill_rect(x0 - y, y0 + x, 2 * y + 1, 1, color);
+        tft_fill_rect(x0 - y, y0 - x, 2 * y + 1, 1, color);
+    }
+}
+
+void draw_smiley_face() {
+    // Clear screen with white background
+    tft_fill_rect(0, 0, TFT_WIDTH, TFT_HEIGHT, COLOR_WHITE);
+
+    // Face (yellow circle in center)
+    uint16_t center_x = TFT_WIDTH / 2;
+    uint16_t center_y = TFT_HEIGHT / 2;
+    uint16_t face_radius = 100;
+
+    tft_fill_circle(center_x, center_y, face_radius, COLOR_YELLOW);
+
+    // Left eye
+    tft_fill_circle(center_x - 35, center_y - 30, 10, COLOR_BLACK);
+
+    // Right eye
+    tft_fill_circle(center_x + 35, center_y - 30, 10, COLOR_BLACK);
+
+    // Smile (arc made of small circles)
+    for (int angle = 20; angle <= 160; angle += 5) {
+        float rad = angle * 3.14159 / 180.0;
+        int16_t x = center_x + (int16_t)(50 * cos(rad));
+        int16_t y = center_y + (int16_t)(50 * sin(rad));
+        tft_fill_circle(x, y, 3, COLOR_BLACK);
+    }
+}
+
 // ===== INITIALIZATION FUNCTIONS =====
 
 void init_display() {
@@ -79,7 +221,25 @@ void init_display() {
     gpio_set_dir(TFT_RST, GPIO_OUT);
     gpio_put(TFT_RST, 1);
 
-    printf("Display SPI initialized\n");
+    // Hardware reset
+    gpio_put(TFT_RST, 0);
+    sleep_ms(10);
+    gpio_put(TFT_RST, 1);
+    sleep_ms(120);
+
+    // ST7796 initialization sequence
+    tft_write_command(0x01); // Software reset
+    sleep_ms(120);
+
+    tft_write_command(0x11); // Sleep out
+    sleep_ms(120);
+
+    tft_write_command(0x3A); // Pixel format
+    tft_write_data(0x55);    // 16-bit color
+
+    tft_write_command(0x29); // Display on
+
+    printf("Display initialized\n");
 }
 
 void init_touch() {
@@ -208,6 +368,10 @@ int main() {
     init_status_leds();
 
     printf("=== Hardware Ready ===\n\n");
+
+    // Draw smiley face on display
+    draw_smiley_face();
+    printf("Smiley face drawn!\n");
 
     // Main loop - test all inputs
     while (true) {

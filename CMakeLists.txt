@@ -39,6 +39,11 @@ add_executable(lil_guy
     main.c
     )
 
+# Add current directory to include path for lwipopts.h
+target_include_directories(lil_guy PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+    )
+
 # pull in common dependencies
 target_link_libraries(lil_guy
     pico_stdlib
