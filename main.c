@@ -54,22 +54,22 @@
 
 // ===== SCREEN DRAWING FUNCTIONS =====
 
-void draw_smiley_face(bool is_happy, uint16_t face_color, int16_t pos_x, int16_t pos_y) {
-    // Clear screen with white background
-    tft_fill_rect(0, 0, TFT_WIDTH, TFT_HEIGHT, COLOR_WHITE);
+void draw_smiley_face_to_sprite(sprite_t *sprite, bool is_happy, uint16_t face_color) {
+    // Clear sprite with white background
+    sprite_fill(sprite, COLOR_WHITE);
 
-    // Face (colored circle at position)
-    uint16_t center_x = pos_x;
-    uint16_t center_y = pos_y;
+    // Face (colored circle at center of sprite)
+    uint16_t center_x = sprite->width / 2;
+    uint16_t center_y = sprite->height / 2;
     uint16_t face_radius = 100;
 
-    tft_fill_circle(center_x, center_y, face_radius, face_color);
+    sprite_fill_circle(sprite, center_x, center_y, face_radius, face_color);
 
     // Left eye
-    tft_fill_circle(center_x - 35, center_y - 30, 10, COLOR_BLACK);
+    sprite_fill_circle(sprite, center_x - 35, center_y - 30, 10, COLOR_BLACK);
 
     // Right eye
-    tft_fill_circle(center_x + 35, center_y - 30, 10, COLOR_BLACK);
+    sprite_fill_circle(sprite, center_x + 35, center_y - 30, 10, COLOR_BLACK);
 
     // Mouth (happy smile or sad frown)
     if (is_happy) {
@@ -78,7 +78,7 @@ void draw_smiley_face(bool is_happy, uint16_t face_color, int16_t pos_x, int16_t
             float rad = angle * 3.14159 / 180.0;
             int16_t x = center_x + (int16_t)(50 * cos(rad));
             int16_t y = center_y + (int16_t)(50 * sin(rad));
-            tft_fill_circle(x, y, 3, COLOR_BLACK);
+            sprite_fill_circle(sprite, x, y, 3, COLOR_BLACK);
         }
     } else {
         // Frown (inverted arc)
@@ -86,7 +86,7 @@ void draw_smiley_face(bool is_happy, uint16_t face_color, int16_t pos_x, int16_t
             float rad = angle * 3.14159 / 180.0;
             int16_t x = center_x + (int16_t)(50 * cos(rad));
             int16_t y = center_y + 20 + (int16_t)(50 * sin(rad));
-            tft_fill_circle(x, y, 3, COLOR_BLACK);
+            sprite_fill_circle(sprite, x, y, 3, COLOR_BLACK);
         }
     }
 }
@@ -220,6 +220,17 @@ int main() {
 
     printf("=== Hardware Ready ===\n\n");
 
+    // Create sprite buffer for smiley (220x220 to fit face + padding)
+    const uint16_t sprite_size = 220;
+    sprite_t *smiley_sprite = sprite_create(sprite_size, sprite_size);
+    if (!smiley_sprite) {
+        printf("Failed to create sprite buffer!\n");
+        return -1;
+    }
+
+    // Clear screen once
+    tft_fill_rect(0, 0, TFT_WIDTH, TFT_HEIGHT, COLOR_WHITE);
+
     // Smiley face state variables
     bool is_happy = true;
     uint8_t color_index = 0;
@@ -227,8 +238,10 @@ int main() {
     uint8_t num_colors = 7;
 
     // Position tracking (start at center)
-    int16_t smiley_x = TFT_WIDTH / 2;
-    int16_t smiley_y = TFT_HEIGHT / 2;
+    int16_t smiley_x = TFT_WIDTH / 2 - sprite_size / 2;
+    int16_t smiley_y = TFT_HEIGHT / 2 - sprite_size / 2;
+    int16_t old_x = smiley_x;
+    int16_t old_y = smiley_y;
     const int16_t face_radius = 100;
 
     // Button state tracking for debouncing
@@ -236,7 +249,8 @@ int main() {
     bool btn2_last = false;
 
     // Draw initial smiley face
-    draw_smiley_face(is_happy, rainbow_colors[color_index], smiley_x, smiley_y);
+    draw_smiley_face_to_sprite(smiley_sprite, is_happy, rainbow_colors[color_index]);
+    sprite_push(smiley_sprite, smiley_x, smiley_y);
     printf("Smiley face drawn! BTN1=toggle happy/sad, BTN2=change color, Joystick=move\n");
 
     // Main loop
@@ -304,18 +318,28 @@ int main() {
             smiley_x += dx;
             smiley_y += dy;
 
-            // Keep smiley on screen
-            if (smiley_x < face_radius) smiley_x = face_radius;
-            if (smiley_x > TFT_WIDTH - face_radius) smiley_x = TFT_WIDTH - face_radius;
-            if (smiley_y < face_radius) smiley_y = face_radius;
-            if (smiley_y > TFT_HEIGHT - face_radius) smiley_y = TFT_HEIGHT - face_radius;
+            // Keep smiley sprite on screen
+            if (smiley_x < 0) smiley_x = 0;
+            if (smiley_x > TFT_WIDTH - sprite_size) smiley_x = TFT_WIDTH - sprite_size;
+            if (smiley_y < 0) smiley_y = 0;
+            if (smiley_y > TFT_HEIGHT - sprite_size) smiley_y = TFT_HEIGHT - sprite_size;
 
             needs_redraw = true;
         }
 
         // Redraw if anything changed
         if (needs_redraw) {
-            draw_smiley_face(is_happy, rainbow_colors[color_index], smiley_x, smiley_y);
+            // Erase old position if moved
+            if (old_x != smiley_x || old_y != smiley_y) {
+                tft_fill_rect(old_x, old_y, sprite_size, sprite_size, COLOR_WHITE);
+            }
+
+            // Redraw sprite to buffer and push to screen
+            draw_smiley_face_to_sprite(smiley_sprite, is_happy, rainbow_colors[color_index]);
+            sprite_push(smiley_sprite, smiley_x, smiley_y);
+
+            old_x = smiley_x;
+            old_y = smiley_y;
         }
 
         // Read all buttons and joysticks (digital inputs read LOW when pressed)

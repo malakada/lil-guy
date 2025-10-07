@@ -30,6 +30,19 @@ void tft_fill_rect(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint16_t colo
 void tft_draw_circle(uint16_t x0, uint16_t y0, uint16_t r, uint16_t color);
 void tft_fill_circle(uint16_t x0, uint16_t y0, uint16_t r, uint16_t color);
 
+// Sprite buffer for flicker-free rendering
+typedef struct {
+    uint16_t *buffer;
+    uint16_t width;
+    uint16_t height;
+} sprite_t;
+
+sprite_t* sprite_create(uint16_t width, uint16_t height);
+void sprite_free(sprite_t *sprite);
+void sprite_fill(sprite_t *sprite, uint16_t color);
+void sprite_fill_circle(sprite_t *sprite, int16_t x0, int16_t y0, uint16_t r, uint16_t color);
+void sprite_push(sprite_t *sprite, uint16_t x, uint16_t y);
+
 // Initialization
 void display_init(void);
 
