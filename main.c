@@ -52,6 +52,28 @@
 #define LED_D1          16
 #define LED_D2          17
 
+// ===== HELPER FUNCTIONS =====
+
+void play_tone(uint frequency_hz, uint duration_ms) {
+    uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
+
+    // Set PWM frequency
+    uint32_t clock = 125000000; // 125 MHz system clock
+    uint32_t divider = clock / (frequency_hz * 4096);
+    pwm_set_clkdiv(slice_num, divider);
+
+    // Set 50% duty cycle
+    pwm_set_wrap(slice_num, 4095);
+    pwm_set_gpio_level(BUZZER_PIN, 2048);
+
+    // Enable PWM
+    pwm_set_enabled(slice_num, true);
+    sleep_ms(duration_ms);
+
+    // Disable PWM (silence)
+    pwm_set_enabled(slice_num, false);
+}
+
 // ===== SCREEN DRAWING FUNCTIONS =====
 
 void draw_smiley_face_to_sprite(sprite_t *sprite, bool is_happy, uint16_t face_color) {
@@ -315,15 +337,35 @@ int main() {
 
         // Update position with boundary checking
         if (dx != 0 || dy != 0) {
-            smiley_x += dx;
-            smiley_y += dy;
+            int16_t new_x = smiley_x + dx;
+            int16_t new_y = smiley_y + dy;
 
-            // Keep smiley sprite on screen
-            if (smiley_x < 0) smiley_x = 0;
-            if (smiley_x > TFT_WIDTH - sprite_size) smiley_x = TFT_WIDTH - sprite_size;
-            if (smiley_y < 0) smiley_y = 0;
-            if (smiley_y > TFT_HEIGHT - sprite_size) smiley_y = TFT_HEIGHT - sprite_size;
+            // Check if hit edge and play tone
+            bool hit_edge = false;
+            if (new_x < 0) {
+                new_x = 0;
+                hit_edge = true;
+            }
+            if (new_x > TFT_WIDTH - sprite_size) {
+                new_x = TFT_WIDTH - sprite_size;
+                hit_edge = true;
+            }
+            if (new_y < 0) {
+                new_y = 0;
+                hit_edge = true;
+            }
+            if (new_y > TFT_HEIGHT - sprite_size) {
+                new_y = TFT_HEIGHT - sprite_size;
+                hit_edge = true;
+            }
 
+            // Play gentle beep if hit edge
+            if (hit_edge) {
+                play_tone(800, 50); // 800 Hz for 50ms
+            }
+
+            smiley_x = new_x;
+            smiley_y = new_y;
             needs_redraw = true;
         }
 
