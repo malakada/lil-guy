@@ -296,6 +296,8 @@ int main() {
         if (btn1_pressed && !btn1_last) {
             is_happy = !is_happy;
             needs_redraw = true;
+            // Play a very gentle, low tone (200 Hz for 80ms - much softer)
+            play_tone(200, 80);
             printf("Toggled mood: %s\n", is_happy ? "Happy :)" : "Sad :(");
         }
         btn1_last = btn1_pressed;
@@ -340,29 +342,11 @@ int main() {
             int16_t new_x = smiley_x + dx;
             int16_t new_y = smiley_y + dy;
 
-            // Check if hit edge and play tone
-            bool hit_edge = false;
-            if (new_x < 0) {
-                new_x = 0;
-                hit_edge = true;
-            }
-            if (new_x > TFT_WIDTH - sprite_size) {
-                new_x = TFT_WIDTH - sprite_size;
-                hit_edge = true;
-            }
-            if (new_y < 0) {
-                new_y = 0;
-                hit_edge = true;
-            }
-            if (new_y > TFT_HEIGHT - sprite_size) {
-                new_y = TFT_HEIGHT - sprite_size;
-                hit_edge = true;
-            }
-
-            // Play gentle beep if hit edge
-            if (hit_edge) {
-                play_tone(800, 50); // 800 Hz for 50ms
-            }
+            // Keep smiley sprite on screen
+            if (new_x < 0) new_x = 0;
+            if (new_x > TFT_WIDTH - sprite_size) new_x = TFT_WIDTH - sprite_size;
+            if (new_y < 0) new_y = 0;
+            if (new_y > TFT_HEIGHT - sprite_size) new_y = TFT_HEIGHT - sprite_size;
 
             smiley_x = new_x;
             smiley_y = new_y;
