@@ -54,13 +54,13 @@
 
 // ===== SCREEN DRAWING FUNCTIONS =====
 
-void draw_smiley_face(bool is_happy, uint16_t face_color) {
+void draw_smiley_face(bool is_happy, uint16_t face_color, int16_t pos_x, int16_t pos_y) {
     // Clear screen with white background
     tft_fill_rect(0, 0, TFT_WIDTH, TFT_HEIGHT, COLOR_WHITE);
 
-    // Face (colored circle in center)
-    uint16_t center_x = TFT_WIDTH / 2;
-    uint16_t center_y = TFT_HEIGHT / 2;
+    // Face (colored circle at position)
+    uint16_t center_x = pos_x;
+    uint16_t center_y = pos_y;
     uint16_t face_radius = 100;
 
     tft_fill_circle(center_x, center_y, face_radius, face_color);
@@ -226,33 +226,40 @@ int main() {
     uint16_t rainbow_colors[] = {COLOR_YELLOW, COLOR_RED, COLOR_ORANGE, COLOR_GREEN, COLOR_CYAN, COLOR_BLUE, COLOR_MAGENTA};
     uint8_t num_colors = 7;
 
+    // Position tracking (start at center)
+    int16_t smiley_x = TFT_WIDTH / 2;
+    int16_t smiley_y = TFT_HEIGHT / 2;
+    const int16_t face_radius = 100;
+
     // Button state tracking for debouncing
     bool btn1_last = false;
     bool btn2_last = false;
 
     // Draw initial smiley face
-    draw_smiley_face(is_happy, rainbow_colors[color_index]);
-    printf("Smiley face drawn! BTN1=toggle happy/sad, BTN2=change color\n");
+    draw_smiley_face(is_happy, rainbow_colors[color_index], smiley_x, smiley_y);
+    printf("Smiley face drawn! BTN1=toggle happy/sad, BTN2=change color, Joystick=move\n");
 
-    // Main loop - test all inputs
+    // Main loop
     while (true) {
         // Blink LEDs to show we're alive
         gpio_put(LED_D1, 1);
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
-        sleep_ms(50);
+        sleep_ms(25);
 
         gpio_put(LED_D1, 0);
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
-        sleep_ms(50);
+        sleep_ms(25);
 
         // Read button states (buttons read LOW when pressed)
         bool btn1_pressed = !gpio_get(BTN1_PIN);
         bool btn2_pressed = !gpio_get(BTN2_PIN);
 
+        bool needs_redraw = false;
+
         // BTN1: Toggle happy/sad on button press (edge detection)
         if (btn1_pressed && !btn1_last) {
             is_happy = !is_happy;
-            draw_smiley_face(is_happy, rainbow_colors[color_index]);
+            needs_redraw = true;
             printf("Toggled mood: %s\n", is_happy ? "Happy :)" : "Sad :(");
         }
         btn1_last = btn1_pressed;
@@ -260,7 +267,7 @@ int main() {
         // BTN2: Cycle through colors on button press (edge detection)
         if (btn2_pressed && !btn2_last) {
             color_index = (color_index + 1) % num_colors;
-            draw_smiley_face(is_happy, rainbow_colors[color_index]);
+            needs_redraw = true;
             printf("Changed color to index %d\n", color_index);
         }
         btn2_last = btn2_pressed;
@@ -270,6 +277,46 @@ int main() {
         uint16_t joy_x = adc_read();
         adc_select_input(1);
         uint16_t joy_y = adc_read();
+
+        // Joystick movement (ADC values are 0-4095, center ~2048)
+        // Dead zone to avoid drift
+        const int16_t dead_zone = 200;
+        const int16_t center = 2048;
+
+        int16_t dx = 0;
+        int16_t dy = 0;
+
+        // Note: X controls vertical, Y controls horizontal (rotated 90 degrees)
+        if (joy_y < center - dead_zone) {
+            dx = ((center - joy_y) / 100);  // Move left
+        } else if (joy_y > center + dead_zone) {
+            dx = -((joy_y - center) / 100);   // Move right
+        }
+
+        if (joy_x < center - dead_zone) {
+            dy = -((center - joy_x) / 100);  // Move up
+        } else if (joy_x > center + dead_zone) {
+            dy = ((joy_x - center) / 100);   // Move down
+        }
+
+        // Update position with boundary checking
+        if (dx != 0 || dy != 0) {
+            smiley_x += dx;
+            smiley_y += dy;
+
+            // Keep smiley on screen
+            if (smiley_x < face_radius) smiley_x = face_radius;
+            if (smiley_x > TFT_WIDTH - face_radius) smiley_x = TFT_WIDTH - face_radius;
+            if (smiley_y < face_radius) smiley_y = face_radius;
+            if (smiley_y > TFT_HEIGHT - face_radius) smiley_y = TFT_HEIGHT - face_radius;
+
+            needs_redraw = true;
+        }
+
+        // Redraw if anything changed
+        if (needs_redraw) {
+            draw_smiley_face(is_happy, rainbow_colors[color_index], smiley_x, smiley_y);
+        }
 
         // Read all buttons and joysticks (digital inputs read LOW when pressed)
         printf("Analog Joy: X=%4d Y=%4d | Buttons: BTN1=%d BTN2=%d\n",
