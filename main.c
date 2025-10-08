@@ -15,10 +15,13 @@
 
 // ===== HARDWARE PIN DEFINITIONS =====
 
-// Touch Screen - I2C
+// Touch Screen - I2C (GT911)
 #define TOUCH_I2C       i2c0
 #define TOUCH_SDA       8
 #define TOUCH_SCL       9
+#define GT911_ADDR      0x5D
+#define GT911_STATUS    0x814E
+#define GT911_POINT1    0x814F
 
 // Buzzer
 #define BUZZER_PIN      13
@@ -123,7 +126,52 @@ void init_touch() {
     gpio_pull_up(TOUCH_SDA);
     gpio_pull_up(TOUCH_SCL);
 
-    printf("Touch I2C initialized\n");
+    printf("Touch GT911 initialized\n");
+}
+
+bool read_touch(uint16_t *x, uint16_t *y) {
+    // Read GT911 status register
+    uint8_t reg[2] = {(GT911_STATUS >> 8) & 0xFF, GT911_STATUS & 0xFF};
+    uint8_t status;
+
+    // Write register address
+    if (i2c_write_blocking(TOUCH_I2C, GT911_ADDR, reg, 2, true) < 0) {
+        return false;
+    }
+
+    // Read status
+    if (i2c_read_blocking(TOUCH_I2C, GT911_ADDR, &status, 1, false) < 0) {
+        return false;
+    }
+
+    // Check if touch detected (bit 7 = buffer status, bits 0-3 = touch points)
+    uint8_t touch_points = status & 0x0F;
+    if (touch_points == 0) {
+        return false; // No touch
+    }
+
+    // Read touch point data
+    reg[0] = (GT911_POINT1 >> 8) & 0xFF;
+    reg[1] = GT911_POINT1 & 0xFF;
+
+    if (i2c_write_blocking(TOUCH_I2C, GT911_ADDR, reg, 2, true) < 0) {
+        return false;
+    }
+
+    uint8_t data[6];
+    if (i2c_read_blocking(TOUCH_I2C, GT911_ADDR, data, 6, false) < 0) {
+        return false;
+    }
+
+    // Parse coordinates (little endian)
+    *x = data[0] | (data[1] << 8);
+    *y = data[2] | (data[3] << 8);
+
+    // Clear status register
+    uint8_t clear_buf[3] = {(GT911_STATUS >> 8) & 0xFF, GT911_STATUS & 0xFF, 0};
+    i2c_write_blocking(TOUCH_I2C, GT911_ADDR, clear_buf, 3, false);
+
+    return true;
 }
 
 void init_buttons() {
@@ -270,10 +318,14 @@ int main() {
     bool btn1_last = false;
     bool btn2_last = false;
 
+    // Touch state tracking
+    bool touch_active = false;
+    uint32_t last_color_change = 0;
+
     // Draw initial smiley face
     draw_smiley_face_to_sprite(smiley_sprite, is_happy, rainbow_colors[color_index]);
     sprite_push(smiley_sprite, smiley_x, smiley_y);
-    printf("Smiley face drawn! BTN1=toggle happy/sad, BTN2=change color, Joystick=move\n");
+    printf("Smiley face drawn! BTN1=toggle happy/sad, BTN2=change color, Joystick=move, Touch=cycle colors\n");
 
     // Main loop
     while (true) {
@@ -309,6 +361,27 @@ int main() {
             printf("Changed color to index %d\n", color_index);
         }
         btn2_last = btn2_pressed;
+
+        // Touch: Cycle through colors fluidly while held
+        uint16_t touch_x, touch_y;
+        bool is_touched = read_touch(&touch_x, &touch_y);
+
+        if (is_touched) {
+            // Blink D2 LED to show touch is detected
+            gpio_put(LED_D2, 1);
+
+            // Cycle colors every 150ms while holding touch
+            uint32_t now = to_ms_since_boot(get_absolute_time());
+            if (now - last_color_change > 150) {
+                color_index = (color_index + 1) % num_colors;
+                needs_redraw = true;
+                last_color_change = now;
+            }
+            touch_active = true;
+        } else {
+            gpio_put(LED_D2, 0);
+            touch_active = false;
+        }
 
         // Read onboard analog joystick
         adc_select_input(0);
@@ -367,17 +440,6 @@ int main() {
             old_x = smiley_x;
             old_y = smiley_y;
         }
-
-        // Read all buttons and joysticks (digital inputs read LOW when pressed)
-        printf("Analog Joy: X=%4d Y=%4d | Buttons: BTN1=%d BTN2=%d\n",
-               joy_x, joy_y,
-               btn1_pressed, btn2_pressed);
-
-        printf("Joy2: U=%d D=%d L=%d R=%d BTN=%d | Joy3: U=%d D=%d L=%d R=%d BTN=%d\n",
-               !gpio_get(JOY2_UP), !gpio_get(JOY2_DOWN), !gpio_get(JOY2_LEFT), !gpio_get(JOY2_RIGHT), !gpio_get(JOY2_BTN),
-               !gpio_get(JOY3_UP), !gpio_get(JOY3_DOWN), !gpio_get(JOY3_LEFT), !gpio_get(JOY3_RIGHT), !gpio_get(JOY3_BTN));
-
-        printf("\n");
     }
 
     return 0;
